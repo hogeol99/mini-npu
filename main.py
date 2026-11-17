@@ -8,6 +8,7 @@ MAC(Multiply-Accumulate) 연산으로 십자가(Cross)와 X 패턴을 판별하�
 
 import json
 import time
+import re
 import math
 
 # === 1. 상수 ===================================================================
@@ -165,8 +166,98 @@ def read_matrix(title, n=3, input_func=input):
     return Matrix.from_rows(rows)
 
 # === 6. JSON 로드·검증 (모드 2) ================================================
+FILTER_KEY_RE = re.compile(r"^size_(\d+)$")          # 예: size_13
+PATTERN_KEY_RE = re.compile(r"^size_(\d+)_(\d+)$")  # 예: size_13_2
 
 
+def load_json(path):
+    """JSON 파일을 읽어 dict로 돌려준다. 실패하면 이유를 담은 ValueError."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        raise ValueError(f"파일을 찾을 수 없습니다: {path}")
+    except json.JSONDecodeError as e:
+        raise ValueError(f"JSON 형식 오류: {path} ({e.lineno}행 {e.colno}열)")
+    if not isinstance(data, dict):
+        raise ValueError("JSON 최상위 구조가 객체({})가 아닙니다.")
+    return data
+
+
+def load_filters(data):
+    """data["filters"]를 읽어 {N: {"Cross": Matrix, "X": Matrix}}로 만든다.
+
+    잘못된 필터 묶음은 건너뛰고, 그 이유를 errors 리스트에 남긴다.
+    반환값: (filters, errors)
+    """
+    raw_filters = data.get("filters")
+    if not isinstance(raw_filters, dict):
+        raise ValueError("'filters' 항목이 없거나 객체가 아닙니다.")
+
+    filters = {}
+    errors = []
+    for key, pair in raw_filters.items():
+        try:
+            match = FILTER_KEY_RE.match(key)
+            if not match:
+                raise ValueError("키 형식이 size_N이 아닙니다.")
+            n = int(match.group(1))
+            if not isinstance(pair, dict):
+                raise ValueError("필터 묶음이 객체가 아닙니다.")
+            loaded = {}
+            for name, rows in pair.items():
+                label = normalize_label(name)
+                matrix = Matrix.from_rows(rows)
+                if matrix.size != n:
+                    raise ValueError(
+                        f"'{name}' 필터 크기 {matrix.size}x{matrix.size}가 키의 N={n}과 다릅니다."
+                    )
+                loaded[label] = matrix
+            for label in (LABEL_CROSS, LABEL_X):
+                if label not in loaded:
+                    raise ValueError(f"{label} 필터가 없습니다.")
+            filters[n] = loaded
+        except ValueError as e:
+            errors.append(f"filters.{key}: {e}")
+    return filters, errors
+
+
+def parse_pattern_key(key):
+    """'size_13_2' → (13, 2). 형식이 틀리면 ValueError."""
+    match = PATTERN_KEY_RE.match(key)
+    if not match:
+        raise ValueError(f"패턴 키 형식이 size_N_idx가 아닙니다: {key!r}")
+    return int(match.group(1)), int(match.group(2))
+
+
+def prepare_case(key, case, filters):
+    """패턴 1개를 검증하고 연산에 필요한 재료를 dict로 돌려준다.
+
+    반환값: {"n", "pattern", "filters", "expected"}
+    문제가 있으면 이유를 담은 ValueError (프로그램은 멈추지 않는다).
+    """
+    n, _ = parse_pattern_key(key)
+    if n not in filters:
+        raise ValueError(f"size_{n} 필터가 없습니다.")
+    if not isinstance(case, dict):
+        raise ValueError("패턴 항목이 객체가 아닙니다.")
+    if "input" not in case:
+        raise ValueError("'input' 항목이 없습니다.")
+    if "expected" not in case:
+        raise ValueError("'expected' 항목이 없습니다.")
+
+    pattern = Matrix.from_rows(case["input"])
+    if pattern.size != n:
+        raise ValueError(
+            f"크기 불일치: 패턴 {pattern.size}x{pattern.size}, 필터 {n}x{n}"
+        )
+    expected = normalize_label(case["expected"])
+    return {
+        "n": n,
+        "pattern": pattern,
+        "filters": filters[n],
+        "expected": expected,
+    }
 # === 7. 성능 분석 ==============================================================
 
 

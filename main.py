@@ -104,6 +104,29 @@ def compare(score_a, score_b, eps=EPSILON):
 
 # === 4. 라벨 정규화 ============================================================
 
+LABEL_CROSS = "Cross"
+LABEL_X = "X"
+
+# 소문자로 바꾼 입력값 → 표준 라벨
+LABEL_MAP = {
+    "+": LABEL_CROSS,       # expected 값
+    "cross": LABEL_CROSS,   # filter 키
+    "x": LABEL_X,           # expected 값, filter 키 공통
+}
+
+
+def normalize_label(raw):
+    """여러 표기('+', 'x', 'cross', 'Cross', ' X ' 등)를 표준 라벨 Cross/X로 바꾼다.
+
+    알 수 없는 값이면 ValueError.
+    """
+    if not isinstance(raw, str):
+        raise ValueError(f"라벨이 문자열이 아닙니다: {raw!r}")
+    key = raw.strip().lower()
+    if key not in LABEL_MAP:
+        raise ValueError(f"알 수 없는 라벨: {raw!r} (허용: '+', 'x', 'cross')")
+    return LABEL_MAP[key]
+
 
 # === 5. 입력 처리 (모드 1) =====================================================
 def parse_row(line, n):

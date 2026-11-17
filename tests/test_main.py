@@ -170,6 +170,7 @@ class TestMode1Input(unittest.TestCase):
         self.assertIn("필터 B 점수: 1.0", text)
         self.assertIn("판정 결과: A", text)
         self.assertIn("ms", text)
+        self.assertIn("[성능 분석]", text)
 
     def test_mode1_x(self):
         text = self.run_mode1(["0 1 0", "1 1 1", "0 1 0",
@@ -373,7 +374,52 @@ class TestMode2(unittest.TestCase):
         self.assertEqual(len(results), 5)
         self.assertEqual(sum(1 for r in results if r["status"] == "FAIL"), 4)
 
-        
+class TestBenchmark(unittest.TestCase):
+    def test_make_cross_and_x(self):
+        cross, x = main.make_cross(3), main.make_x(3)
+        for r in range(3):
+            for c in range(3):
+                self.assertEqual(cross.get(r, c), CROSS_3[r][c])
+                self.assertEqual(x.get(r, c), X_3[r][c])
+
+    def test_generated_patterns_score(self):
+        # n×n 십자가끼리 MAC = 칸 수 (2n-1), X끼리 = 2n-1 (n이 홀수일 때)
+        for n in (5, 13, 25):
+            self.assertEqual(main.mac(main.make_cross(n), main.make_cross(n)), 2 * n - 1)
+            self.assertEqual(main.mac(main.make_x(n), main.make_x(n)), 2 * n - 1)
+
+    def test_measure_returns_positive_ms(self):
+        avg = main.measure_mac(main.make_cross(5), main.make_x(5), repeat=10)
+        self.assertIsInstance(avg, float)
+        self.assertGreater(avg, 0)
+
+    def test_run_benchmark_sorted_sizes(self):
+        pairs = {n: (main.make_cross(n), main.make_x(n)) for n in (25, 3, 13, 5)}
+        rows = main.run_benchmark(pairs, repeat=10)
+        self.assertEqual([n for n, _ in rows], [3, 5, 13, 25])
+
+    def test_bigger_is_slower(self):
+        rows = dict(main.run_benchmark(
+            {n: (main.make_cross(n), main.make_x(n)) for n in (3, 25)}, repeat=10))
+        self.assertGreater(rows[25], rows[3])
+
+    def test_print_table(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            main.print_benchmark([(3, 0.001), (25, 0.05)])
+        text = out.getvalue()
+        self.assertIn("크기(N×N)", text)
+        self.assertIn("연산 횟수(N²)", text)
+        self.assertIn("625", text)
+
+    def test_mode2_prints_all_sizes(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            main.run_mode2(os.path.join(ROOT, "data.json"))
+        text = out.getvalue()
+        for size in ("3x3", "5x5", "13x13", "25x25"):
+            self.assertIn(size, text)
+        self.assertIn("[성능 분석]", text)    
                  
 if __name__ == "__main__":
     unittest.main()

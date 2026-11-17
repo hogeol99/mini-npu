@@ -15,6 +15,7 @@ import math
 
 EPSILON = 1e-9          # 점수 비교 허용오차
 BENCH_REPEAT = 10       # 성능 측정 반복 횟수
+BENCH_SIZES = (3, 5, 13, 25)  # 성능 측정 대상 크기
 DATA_PATH = "data.json"
 
 # compare() 결과를 모드 1 출력용 이름으로 바꾸는 표
@@ -329,6 +330,61 @@ def print_case_result(r):
         print(f"  결과: FAIL ({r['category']}: {r['reason']})")
 # === 7. 성능 분석 ==============================================================
 
+def make_cross(n):
+    """가운데 행과 가운데 열이 1인 n×n 십자가 행렬을 만든다."""
+    m = Matrix(n)
+    mid = n // 2
+    for i in range(n):
+        m.set(mid, i, 1)
+        m.set(i, mid, 1)
+    return m
+
+
+def make_x(n):
+    """두 대각선이 1인 n×n X 행렬을 만든다."""
+    m = Matrix(n)
+    for i in range(n):
+        m.set(i, i, 1)
+        m.set(i, n - 1 - i, 1)
+    return m
+
+
+def measure_mac(pattern, flt, repeat=BENCH_REPEAT):
+    """MAC 연산을 repeat번 반복 측정해 평균 시간(ms)을 돌려준다.
+
+    입력/출력은 측정 구간에 넣지 않고, mac() 호출 구간만 잰다.
+    """
+    mac(pattern, flt)  # 워밍업 1회 (첫 호출의 준비 비용을 측정에서 제외)
+    total = 0.0
+    for _ in range(repeat):
+        start = time.perf_counter()
+        mac(pattern, flt)
+        total += time.perf_counter() - start
+    return total / repeat * 1000
+
+
+def run_benchmark(pairs, repeat=BENCH_REPEAT):
+    """pairs = {N: (pattern, filter)} 를 크기 순서대로 측정한다.
+
+    반환값: [(N, 평균 ms), ...]
+    """
+    rows = []
+    for n in sorted(pairs):
+        pattern, flt = pairs[n]
+        rows.append((n, measure_mac(pattern, flt, repeat)))
+    return rows
+
+
+def print_benchmark(rows, repeat=BENCH_REPEAT):
+    """성능 분석 표를 출력한다."""
+    print(f"\n[성능 분석] (크기별 MAC {repeat}회 반복 평균, I/O 제외)")
+    print(f"{'크기(N×N)':<12}{'평균 시간(ms)':>16}{'연산 횟수(N²)':>16}{'1회당(ns)':>14}")
+    print("-" * 58)
+    for n, avg_ms in rows:
+        ops = n * n
+        per_op_ns = avg_ms * 1_000_000 / ops
+        print(f"{f'{n}x{n}':<12}{avg_ms:>16.6f}{ops:>16}{per_op_ns:>14.1f}")
+
 
 # === 8. 결과 리포트 ============================================================
 
@@ -362,7 +418,8 @@ def run_mode1(input_func=input):
     print(f"필터 B 점수: {score_b}")
     print(f"연산 시간: {elapsed_ms:.6f} ms")
     print(f"판정 결과: {result}")
-    # 3×3 성능 분석 표는 8단계에서 추가
+    
+    print_benchmark(run_benchmark({3: (pattern, filter_a)}))
 
 
 def run_mode2(path=DATA_PATH):
@@ -390,7 +447,11 @@ def run_mode2(path=DATA_PATH):
         r = evaluate_case(key, case, filters)
         print_case_result(r)
         results.append(r)
-    # 성능 분석(8단계)과 결과 요약(9단계)은 이후에 추가
+    pairs = {}
+    for n in BENCH_SIZES:
+        flt = filters[n][LABEL_CROSS] if n in filters else make_cross(n)
+        pairs[n] = (make_cross(n), flt)
+    print_benchmark(run_benchmark(pairs))
     return results
 
 def main():

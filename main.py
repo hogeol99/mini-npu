@@ -69,7 +69,23 @@ class Matrix:
         return "\n".join(lines)
 
 # === 3. 연산 (mac, compare) ====================================================
+def mac(pattern, flt):
+    """패턴과 필터를 같은 위치끼리 곱하고(Multiply) 모두 더한다(Accumulate).
 
+    외부 라이브러리 없이 이중 반복문으로 직접 계산한다.
+    연산 횟수(곱셈 수)는 N×N = N²이다.
+    """
+    if pattern.size != flt.size:
+        raise ValueError(
+            f"크기 불일치: 패턴 {pattern.size}x{pattern.size}, "
+            f"필터 {flt.size}x{flt.size}"
+        )
+    n = pattern.size
+    total = 0.0
+    for r in range(n):
+        for c in range(n):
+            total += pattern.get(r, c) * flt.get(r, c)
+    return total
 
 # === 4. 라벨 정규화 ============================================================
 

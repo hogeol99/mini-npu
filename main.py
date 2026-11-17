@@ -388,6 +388,40 @@ def print_benchmark(rows, repeat=BENCH_REPEAT):
 
 # === 8. 결과 리포트 ============================================================
 
+def summarize(results):
+    """결과 리스트를 집계한다.
+
+    반환값: {"total", "passed", "failed", "by_category": {분류: 개수}, "failures": [결과, ...]}
+    """
+    failures = [r for r in results if r["status"] != "PASS"]
+    by_category = {}
+    for r in failures:
+        by_category[r["category"]] = by_category.get(r["category"], 0) + 1
+    return {
+        "total": len(results),
+        "passed": len(results) - len(failures),
+        "failed": len(failures),
+        "by_category": by_category,
+        "failures": failures,
+    }
+
+
+def print_summary(results):
+    """전체/통과/실패 수와 실패 케이스 목록을 출력한다."""
+    s = summarize(results)
+    print("\n[결과 요약]")
+    print(f"전체 테스트: {s['total']}")
+    print(f"통과: {s['passed']}")
+    print(f"실패: {s['failed']}")
+    if not s["failures"]:
+        print("실패 케이스 없음")
+        return
+    detail = ", ".join(f"{cat} {cnt}건" for cat, cnt in s["by_category"].items())
+    print(f"실패 원인별: {detail}")
+    print("실패 케이스:")
+    for r in s["failures"]:
+        print(f"  - {r['id']} [{r['category']}] {r['reason']}")
+
 
 # === 9. 모드 실행 / main() =====================================================
 
@@ -452,6 +486,7 @@ def run_mode2(path=DATA_PATH):
         flt = filters[n][LABEL_CROSS] if n in filters else make_cross(n)
         pairs[n] = (make_cross(n), flt)
     print_benchmark(run_benchmark(pairs))
+    print_summary(results)
     return results
 
 def main():

@@ -179,6 +179,123 @@ class TestMode1Input(unittest.TestCase):
     def test_mode1_tie(self):
         same = ["0 1 0", "1 1 1", "0 1 0"]
         text = self.run_mode1(same + same + same)
-        self.assertIn("판정 결과: 판정 불가", text)        
+        self.assertIn("판정 결과: 판정 불가", text)    
+
+class TestLabels(unittest.TestCase):
+    def test_expected_values(self):
+        self.assertEqual(main.normalize_label("+"), "Cross")
+        self.assertEqual(main.normalize_label("x"), "X")
+
+    def test_filter_keys(self):
+        self.assertEqual(main.normalize_label("cross"), "Cross")
+        self.assertEqual(main.normalize_label("x"), "X")
+
+    def test_case_and_spaces(self):
+        self.assertEqual(main.normalize_label("Cross"), "Cross")
+        self.assertEqual(main.normalize_label(" X "), "X")
+        self.assertEqual(main.normalize_label("CROSS"), "Cross")
+
+    def test_already_standard_is_unchanged(self):
+        for label in ("Cross", "X"):
+            self.assertEqual(main.normalize_label(label), label)
+
+    def test_unknown_label(self):
+        for bad in ("?", "", "o", "plus"):
+            with self.assertRaises(ValueError):
+                main.normalize_label(bad)
+
+    def test_not_string(self):
+        with self.assertRaises(ValueError):
+            main.normalize_label(None)
+        with self.assertRaises(ValueError):
+            main.normalize_label(1)
+
+    def test_all_labels_in_data_json(self):
+        with open(os.path.join(ROOT, "data.json"), encoding="utf-8") as f:
+            data = json.load(f)
+        for pair in data["filters"].values():
+            for name in pair:
+                self.assertIn(main.normalize_label(name), ("Cross", "X"))
+        for case in data["patterns"].values():
+            self.assertIn(main.normalize_label(case["expected"]), ("Cross", "X"))
+
+def square(n, value=0.0):
+    return [[value] * n for _ in range(n)]
+
+
+class TestLoader(unittest.TestCase):
+    def setUp(self):
+        # 테스트마다 새로 만드는 작은 정상 데이터 (3×3 필터 1세트)
+        self.data = {
+            "filters": {
+                "size_3": {"cross": CROSS_3, "x": X_3},
+            },
+            "patterns": {},
+        }
+
+    def test_load_json_ok(self):
+        data = main.load_json(os.path.join(ROOT, "data.json"))
+        self.assertIn("filters", data)
+        self.assertIn("patterns", data)
+
+    def test_load_json_missing_file(self):
+        with self.assertRaises(ValueError):
+            main.load_json(os.path.join(ROOT, "no_such_file.json"))
+
+    def test_load_filters_from_data_json(self):
+        data = main.load_json(os.path.join(ROOT, "data.json"))
+        filters, errors = main.load_filters(data)
+        self.assertEqual(errors, [])
+        self.assertEqual(sorted(filters), [5, 13, 25])
+        self.assertEqual(sorted(filters[13]), ["Cross", "X"])
+
+    def test_load_filters_size_mismatch(self):
+        self.data["filters"]["size_5"] = {"cross": square(3), "x": square(5)}
+        filters, errors = main.load_filters(self.data)
+        self.assertIn(3, filters)          # 정상 묶음은 살아남고
+        self.assertNotIn(5, filters)       # 잘못된 묶음만 빠진다
+        self.assertEqual(len(errors), 1)
+
+    def test_load_filters_missing_section(self):
+        with self.assertRaises(ValueError):
+            main.load_filters({"patterns": {}})
+
+    def test_parse_pattern_key(self):
+        self.assertEqual(main.parse_pattern_key("size_13_2"), (13, 2))
+        for bad in ("size_13", "13_2", "size_a_1", "size_5_1_x"):
+            with self.assertRaises(ValueError):
+                main.parse_pattern_key(bad)
+
+    def test_prepare_case_ok(self):
+        filters, _ = main.load_filters(self.data)
+        prepared = main.prepare_case("size_3_1", {"input": CROSS_3, "expected": "+"}, filters)
+        self.assertEqual(prepared["n"], 3)
+        self.assertEqual(prepared["expected"], "Cross")
+        self.assertEqual(prepared["pattern"].size, 3)
+
+    def test_prepare_case_errors(self):
+        filters, _ = main.load_filters(self.data)
+        bad_cases = {
+            "size_3_1": {"input": square(5), "expected": "+"},   # 크기 불일치
+            "size_7_1": {"input": square(7), "expected": "x"},   # 필터 없음
+            "size_3_2": {"input": CROSS_3, "expected": "?"},     # 알 수 없는 라벨
+            "size_3_3": {"expected": "+"},                       # input 없음
+            "size_3_4": {"input": CROSS_3},                      # expected 없음
+            "pattern_1": {"input": CROSS_3, "expected": "+"},    # 키 형식 오류
+            "size_3_5": {"input": [[0, 1], [1, 1, 1], [0, 1, 0]], "expected": "+"},  # 행 길이 불일치
+        }
+        for key, case in bad_cases.items():
+            with self.subTest(key=key):
+                with self.assertRaises(ValueError):
+                    main.prepare_case(key, case, filters)
+
+    def test_prepare_all_data_json_cases(self):
+        data = main.load_json(os.path.join(ROOT, "data.json"))
+        filters, _ = main.load_filters(data)
+        for key, case in data["patterns"].items():
+            prepared = main.prepare_case(key, case, filters)
+            self.assertIn(prepared["expected"], ("Cross", "X"))
+
+                 
 if __name__ == "__main__":
     unittest.main()

@@ -1,8 +1,9 @@
+import contextlib
+import io
 import json
 import os
 import sys
 import unittest
-
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
@@ -120,6 +121,64 @@ class TestCompare(unittest.TestCase):
     def test_custom_eps(self):
         self.assertEqual(main.compare(1.0, 1.05, eps=0.1), "TIE")
 
-        
+def fake_input(lines):
+    """input() 대신 쓸 가짜 입력 함수. 미리 준비한 줄을 차례로 돌려준다."""
+    it = iter(lines)
+    return lambda prompt="": next(it)
+
+
+class TestMode1Input(unittest.TestCase):
+    def test_parse_row_ok(self):
+        self.assertEqual(main.parse_row("0 1 0", 3), [0.0, 1.0, 0.0])
+        self.assertEqual(main.parse_row("  0.5   1  -2 ", 3), [0.5, 1.0, -2.0])
+
+    def test_parse_row_wrong_count(self):
+        with self.assertRaises(ValueError):
+            main.parse_row("0 1", 3)
+        with self.assertRaises(ValueError):
+            main.parse_row("0 1 0 1", 3)
+        with self.assertRaises(ValueError):
+            main.parse_row("", 3)
+
+    def test_parse_row_not_number(self):
+        with self.assertRaises(ValueError):
+            main.parse_row("1 a 0", 3)
+        with self.assertRaises(ValueError):
+            main.parse_row("1 nan 0", 3)
+
+    def test_read_matrix_retries_bad_lines(self):
+        lines = ["0 1", "0 1 0", "1 x 1", "1 1 1", "0 1 0"]
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            m = main.read_matrix("테스트", 3, fake_input(lines))
+        self.assertEqual(m.get(0, 1), 1.0)
+        self.assertEqual(m.get(1, 0), 1.0)
+        self.assertEqual(out.getvalue().count("입력 형식 오류"), 2)
+
+    def run_mode1(self, lines):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            main.run_mode1(fake_input(lines))
+        return out.getvalue()
+
+    def test_mode1_cross(self):
+        text = self.run_mode1(["0 1 0", "1 1 1", "0 1 0",
+                               "1 0 1", "0 1 0", "1 0 1",
+                               "0 1 0", "1 1 1", "0 1 0"])
+        self.assertIn("필터 A 점수: 5.0", text)
+        self.assertIn("필터 B 점수: 1.0", text)
+        self.assertIn("판정 결과: A", text)
+        self.assertIn("ms", text)
+
+    def test_mode1_x(self):
+        text = self.run_mode1(["0 1 0", "1 1 1", "0 1 0",
+                               "1 0 1", "0 1 0", "1 0 1",
+                               "1 0 1", "0 1 0", "1 0 1"])
+        self.assertIn("판정 결과: B", text)
+
+    def test_mode1_tie(self):
+        same = ["0 1 0", "1 1 1", "0 1 0"]
+        text = self.run_mode1(same + same + same)
+        self.assertIn("판정 결과: 판정 불가", text)        
 if __name__ == "__main__":
     unittest.main()

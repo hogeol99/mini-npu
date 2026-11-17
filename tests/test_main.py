@@ -420,6 +420,57 @@ class TestBenchmark(unittest.TestCase):
         for size in ("3x3", "5x5", "13x13", "25x25"):
             self.assertIn(size, text)
         self.assertIn("[성능 분석]", text)    
-                 
+def fake_result(case_id, status, category=None, reason=""):
+    return {"id": case_id, "status": status, "category": category, "reason": reason}
+
+
+class TestReport(unittest.TestCase):
+    def test_summarize_counts(self):
+        results = [
+            fake_result("a", "PASS"),
+            fake_result("b", "FAIL", main.FAIL_NUMERIC, "동점"),
+            fake_result("c", "FAIL", main.FAIL_SCHEMA, "크기 불일치"),
+            fake_result("d", "FAIL", main.FAIL_NUMERIC, "동점"),
+        ]
+        s = main.summarize(results)
+        self.assertEqual((s["total"], s["passed"], s["failed"]), (4, 1, 3))
+        self.assertEqual(s["by_category"], {main.FAIL_NUMERIC: 2, main.FAIL_SCHEMA: 1})
+        self.assertEqual([r["id"] for r in s["failures"]], ["b", "c", "d"])
+
+    def test_summarize_empty(self):
+        s = main.summarize([])
+        self.assertEqual((s["total"], s["passed"], s["failed"]), (0, 0, 0))
+
+    def test_print_summary_no_failures(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            main.print_summary([fake_result("a", "PASS")])
+        self.assertIn("실패 케이스 없음", out.getvalue())
+
+    def run_mode2_summary(self, path):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            results = main.run_mode2(path)
+        return results, out.getvalue()
+
+    def test_data_json_summary(self):
+        results, text = self.run_mode2_summary(os.path.join(ROOT, "data.json"))
+        self.assertIn("전체 테스트: 6", text)
+        self.assertIn("통과: 3", text)
+        self.assertIn("실패: 3", text)
+        for case_id in ("size_5_1", "size_13_2", "size_25_1"):
+            self.assertIn(f"- {case_id} [수치 비교]", text)
+
+    def test_summary_matches_case_lines(self):
+        # 재현성: 케이스별 PASS/FAIL 줄 수와 요약 숫자가 일치해야 한다
+        for name in ("data.json", os.path.join("tests", "bad_data.json")):
+            with self.subTest(file=name):
+                results, text = self.run_mode2_summary(os.path.join(ROOT, name))
+                s = main.summarize(results)
+                self.assertEqual(text.count("결과: PASS"), s["passed"])
+                self.assertEqual(text.count("결과: FAIL"), s["failed"])
+                self.assertEqual(s["total"], s["passed"] + s["failed"])
+                
+                             
 if __name__ == "__main__":
     unittest.main()

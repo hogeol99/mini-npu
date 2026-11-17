@@ -87,6 +87,19 @@ def mac(pattern, flt):
             total += pattern.get(r, c) * flt.get(r, c)
     return total
 
+
+def compare(score_a, score_b, eps=EPSILON):
+    """두 점수를 허용오차(epsilon) 기준으로 비교한다.
+
+    반환값: "A"(A가 큼), "B"(B가 큼), "TIE"(차이가 eps 미만이라 동점)
+    """
+    if abs(score_a - score_b) < eps:
+        return "TIE"
+    if score_a > score_b:
+        return "A"
+    return "B"
+
+
 # === 4. 라벨 정규화 ============================================================
 
 

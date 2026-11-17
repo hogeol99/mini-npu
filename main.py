@@ -8,7 +8,7 @@ MAC(Multiply-Accumulate) 연산으로 십자가(Cross)와 X 패턴을 판별하�
 
 import json
 import time
-
+import math
 
 # === 1. 상수 ===================================================================
 
@@ -16,6 +16,8 @@ EPSILON = 1e-9          # 점수 비교 허용오차
 BENCH_REPEAT = 10       # 성능 측정 반복 횟수
 DATA_PATH = "data.json"
 
+# compare() 결과를 모드 1 출력용 이름으로 바꾸는 표
+MODE1_LABELS = {"A": "A", "B": "B", "TIE": "판정 불가"}
 
 # === 2. 데이터 구조 (Matrix) ===================================================
 class Matrix:
@@ -104,7 +106,40 @@ def compare(score_a, score_b, eps=EPSILON):
 
 
 # === 5. 입력 처리 (모드 1) =====================================================
+def parse_row(line, n):
+    """한 줄 문자열을 숫자 n개의 리스트로 바꾼다. 형식이 틀리면 ValueError."""
+    tokens = line.split()
+    if len(tokens) != n:
+        raise ValueError(
+            f"입력 형식 오류: 각 줄에 {n}개의 숫자를 공백으로 구분해 입력하세요. "
+            f"(입력된 개수: {len(tokens)})"
+        )
+    row = []
+    for token in tokens:
+        try:
+            value = float(token)
+        except ValueError:
+            raise ValueError(
+                f"입력 형식 오류: '{token}'은(는) 숫자가 아닙니다. "
+                f"각 줄에 {n}개의 숫자를 공백으로 구분해 입력하세요."
+            )
+        if not math.isfinite(value):
+            raise ValueError(f"입력 형식 오류: '{token}'은(는) 사용할 수 없는 값입니다.")
+        row.append(value)
+    return row
 
+
+def read_matrix(title, n=3, input_func=input):
+    """n×n 행렬을 한 줄씩 입력받는다. 틀린 줄은 그 줄만 다시 입력받는다."""
+    print(f"\n[{title}] {n}줄을 입력하세요. (각 줄에 숫자 {n}개, 공백으로 구분)")
+    rows = []
+    while len(rows) < n:
+        line = input_func(f"  {len(rows) + 1}행: ")
+        try:
+            rows.append(parse_row(line, n))
+        except ValueError as e:
+            print(f"  {e}")
+    return Matrix.from_rows(rows)
 
 # === 6. JSON 로드·검증 (모드 2) ================================================
 
@@ -117,18 +152,51 @@ def compare(score_a, score_b, eps=EPSILON):
 
 # === 9. 모드 실행 / main() =====================================================
 
+def run_mode1(input_func=input):
+    """모드 1: 3×3 필터 A, B와 패턴을 입력받아 판정한다."""
+    print("\n=== 모드 1: 사용자 입력 (3x3) ===")
+    filter_a = read_matrix("필터 A", 3, input_func)
+    filter_b = read_matrix("필터 B", 3, input_func)
+
+    print("\n[저장 확인]")
+    print("필터 A:")
+    print(filter_a.to_text())
+    print("필터 B:")
+    print(filter_b.to_text())
+
+    pattern = read_matrix("패턴", 3, input_func)
+
+    # 연산 구간만 측정 (입력/출력 시간 제외)
+    start = time.perf_counter()
+    score_a = mac(pattern, filter_a)
+    score_b = mac(pattern, filter_b)
+    elapsed_ms = (time.perf_counter() - start) * 1000
+
+    result = MODE1_LABELS[compare(score_a, score_b)]
+
+    print("\n[결과]")
+    print(f"필터 A 점수: {score_a}")
+    print(f"필터 B 점수: {score_b}")
+    print(f"연산 시간: {elapsed_ms:.6f} ms")
+    print(f"판정 결과: {result}")
+    # 3×3 성능 분석 표는 8단계에서 추가
+
+
 def main():
     print("=== Mini NPU Simulator ===")
-    print("[모드 선택]")
-    print("1. 사용자 입력 (3x3)")
-    print("2. data.json 분석")
-    choice = input("선택(1 또는 2): ").strip()
-    if choice == "1":
-        print("모드 1은 아직 구현되지 않았습니다.")
-    elif choice == "2":
-        print("모드 2는 아직 구현되지 않았습니다.")
-    else:
-        print("1 또는 2를 입력하세요.")
+    while True:
+        print("\n[모드 선택]")
+        print("1. 사용자 입력 (3x3)")
+        print("2. data.json 분석")
+        choice = input("선택(1 또는 2): ").strip()
+        if choice == "1":
+            run_mode1()
+            break
+        elif choice == "2":
+            print("모드 2는 아직 구현되지 않았습니다.")
+            break
+        else:
+            print("1 또는 2를 입력하세요.")
 
 
 if __name__ == "__main__":

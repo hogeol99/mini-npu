@@ -3,6 +3,7 @@ import io
 import json
 import os
 import sys
+import tempfile
 import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -296,6 +297,83 @@ class TestLoader(unittest.TestCase):
             prepared = main.prepare_case(key, case, filters)
             self.assertIn(prepared["expected"], ("Cross", "X"))
 
+class TestMode2(unittest.TestCase):
+    def setUp(self):
+        self.data = main.load_json(os.path.join(ROOT, "data.json"))
+        self.filters, _ = main.load_filters(self.data)
+
+    def evaluate(self, key, case=None):
+        if case is None:
+            case = self.data["patterns"][key]
+        return main.evaluate_case(key, case, self.filters)
+
+    def test_data_json_expected_results(self):
+        expected = {
+            "size_5_1": ("FAIL", "UNDECIDED"),
+            "size_5_2": ("PASS", "Cross"),
+            "size_13_1": ("PASS", "X"),
+            "size_13_2": ("FAIL", "UNDECIDED"),
+            "size_25_1": ("FAIL", "UNDECIDED"),
+            "size_25_2": ("PASS", "Cross"),
+        }
+        for key, (status, decision) in expected.items():
+            with self.subTest(key=key):
+                r = self.evaluate(key)
+                self.assertEqual(r["status"], status)
+                self.assertEqual(r["decision"], decision)
+
+    def test_undecided_is_numeric_fail(self):
+        r = self.evaluate("size_5_1")
+        self.assertEqual(r["category"], main.FAIL_NUMERIC)
+
+    def test_wrong_expected_is_logic_fail(self):
+        case = dict(self.data["patterns"]["size_5_2"], expected="x")
+        r = self.evaluate("size_5_2", case)
+        self.assertEqual(r["status"], "FAIL")
+        self.assertEqual(r["category"], main.FAIL_LOGIC)
+
+    def test_size_mismatch_is_schema_fail(self):
+        case = {"input": self.data["patterns"]["size_5_1"]["input"], "expected": "x"}
+        r = self.evaluate("size_13_9", case)
+        self.assertEqual(r["status"], "FAIL")
+        self.assertEqual(r["category"], main.FAIL_SCHEMA)
+        self.assertIn("크기 불일치", r["reason"])
+
+    def run_mode2_text(self, path):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            results = main.run_mode2(path)
+        return results, out.getvalue()
+
+    def test_run_mode2_data_json(self):
+        results, text = self.run_mode2_text(os.path.join(ROOT, "data.json"))
+        self.assertEqual(len(results), 6)
+        self.assertEqual(text.count("결과: PASS"), 3)
+        self.assertEqual(text.count("결과: FAIL"), 3)
+
+    def test_run_mode2_missing_file(self):
+        results, text = self.run_mode2_text(os.path.join(ROOT, "no_such_file.json"))
+        self.assertEqual(results, [])
+        self.assertIn("파일을 찾을 수 없습니다", text)
+
+    def test_run_mode2_broken_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "broken.json")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write('{"filters": {,}')
+            results, text = self.run_mode2_text(path)
+        self.assertEqual(results, [])
+        self.assertIn("JSON 형식 오류", text)
+
+    def test_run_mode2_bad_data_continues(self):
+        path = os.path.join(ROOT, "tests", "bad_data.json")
+        results, text = self.run_mode2_text(path)
+        statuses = {r["id"]: r["status"] for r in results}
+        self.assertEqual(statuses["size_3_1"], "PASS")       # 정상 케이스는 계속 처리됨
+        self.assertEqual(len(results), 5)
+        self.assertEqual(sum(1 for r in results if r["status"] == "FAIL"), 4)
+
+        
                  
 if __name__ == "__main__":
     unittest.main()

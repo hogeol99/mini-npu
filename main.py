@@ -107,6 +107,7 @@ def compare(score_a, score_b, eps=EPSILON):
 
 LABEL_CROSS = "Cross"
 LABEL_X = "X"
+LABEL_UNDECIDED = "UNDECIDED"
 
 # 소문자로 바꾼 입력값 → 표준 라벨
 LABEL_MAP = {
@@ -115,6 +116,13 @@ LABEL_MAP = {
     "x": LABEL_X,           # expected 값, filter 키 공통
 }
 
+# compare() 결과를 모드 2 출력용 이름으로 바꾸는 표 (A=Cross 필터, B=X 필터)
+
+MODE2_LABELS = {
+    "A": LABEL_CROSS,
+    "B": LABEL_X,
+    "TIE": LABEL_UNDECIDED
+}
 
 def normalize_label(raw):
     """여러 표기('+', 'x', 'cross', 'Cross', ' X ' 등)를 표준 라벨 Cross/X로 바꾼다.
@@ -258,6 +266,67 @@ def prepare_case(key, case, filters):
         "filters": filters[n],
         "expected": expected,
     }
+
+# 실패 원인 분류 (README 분석과 같은 기준)
+FAIL_SCHEMA = "데이터/스키마"
+FAIL_NUMERIC = "수치 비교"
+FAIL_LOGIC = "로직"
+
+
+def evaluate_case(key, case, filters):
+    """패턴 1개를 검증 → MAC → 판정 → expected 비교까지 하고 결과 dict를 돌려준다.
+
+    어떤 문제가 있어도 예외를 밖으로 내보내지 않고 FAIL 결과로 바꾼다.
+    """
+    result = {
+        "id": key, "status": "FAIL", "category": None, "reason": "",
+        "cross": None, "x": None, "decision": None, "expected": None,
+    }
+    try:
+        prepared = prepare_case(key, case, filters)
+    except ValueError as e:
+        result["category"] = FAIL_SCHEMA
+        result["reason"] = str(e)
+        return result
+
+    try:
+        pattern = prepared["pattern"]
+        result["expected"] = prepared["expected"]
+        result["cross"] = mac(pattern, prepared["filters"][LABEL_CROSS])
+        result["x"] = mac(pattern, prepared["filters"][LABEL_X])
+        result["decision"] = MODE2_LABELS[compare(result["cross"], result["x"])]
+    except Exception as e:  # 예상하지 못한 오류도 케이스 단위로 처리
+        result["category"] = FAIL_LOGIC
+        result["reason"] = f"연산 중 오류: {e}"
+        return result
+
+    if result["decision"] == LABEL_UNDECIDED:
+        result["category"] = FAIL_NUMERIC
+        result["reason"] = (
+            f"두 점수 차이가 epsilon({EPSILON:g}) 미만이라 판정 불가 "
+            f"(expected {result['expected']})"
+        )
+    elif result["decision"] != result["expected"]:
+        result["category"] = FAIL_LOGIC
+        result["reason"] = f"판정 {result['decision']} ≠ expected {result['expected']}"
+    else:
+        result["status"] = "PASS"
+    return result
+
+
+def print_case_result(r):
+    """케이스 1개 결과를 콘솔에 출력한다."""
+    print(f"\n[{r['id']}]")
+    if r["category"] == FAIL_SCHEMA:
+        print(f"  결과: FAIL ({r['category']}: {r['reason']})")
+        return
+    print(f"  Cross 점수: {r['cross']}")
+    print(f"  X 점수:     {r['x']}")
+    print(f"  판정: {r['decision']} / expected: {r['expected']}")
+    if r["status"] == "PASS":
+        print("  결과: PASS")
+    else:
+        print(f"  결과: FAIL ({r['category']}: {r['reason']})")
 # === 7. 성능 분석 ==============================================================
 
 
@@ -296,6 +365,34 @@ def run_mode1(input_func=input):
     # 3×3 성능 분석 표는 8단계에서 추가
 
 
+def run_mode2(path=DATA_PATH):
+    """모드 2: data.json을 읽어 모든 패턴을 일괄 판정한다. 결과 리스트를 돌려준다."""
+    print(f"\n=== 모드 2: data.json 분석 ({path}) ===")
+    try:
+        data = load_json(path)
+        filters, filter_errors = load_filters(data)
+    except ValueError as e:
+        print(f"데이터를 불러오지 못했습니다: {e}")
+        return []
+
+    print(f"\n[필터 로드] 사용 가능한 크기: {', '.join(f'{n}x{n}' for n in sorted(filters)) or '없음'}")
+    for err in filter_errors:
+        print(f"  경고: {err}")
+
+    patterns = data.get("patterns")
+    if not isinstance(patterns, dict):
+        print("'patterns' 항목이 없거나 객체가 아닙니다.")
+        return []
+
+    print("\n[패턴 판정]")
+    results = []
+    for key, case in patterns.items():
+        r = evaluate_case(key, case, filters)
+        print_case_result(r)
+        results.append(r)
+    # 성능 분석(8단계)과 결과 요약(9단계)은 이후에 추가
+    return results
+
 def main():
     print("=== Mini NPU Simulator ===")
     while True:
@@ -307,7 +404,8 @@ def main():
             run_mode1()
             break
         elif choice == "2":
-            print("모드 2는 아직 구현되지 않았습니다.")
+            path = input(f"JSON 파일 경로 (Enter = {DATA_PATH}): ").strip() or DATA_PATH
+            run_mode2(path)
             break
         else:
             print("1 또는 2를 입력하세요.")
